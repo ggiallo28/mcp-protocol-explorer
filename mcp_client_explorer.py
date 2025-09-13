@@ -6,628 +6,589 @@
 # ///
 
 """
-MCP Client and Explorer - Separated Architecture
+Enhanced MCP Client - Autonomous Agent
 
-This module provides:
-1. MCPClient: Core MCP protocol implementation
-2. MCPExplorer: Educational exploration of MCP capabilities
-3. Clear separation between protocol logic and exploration logic
+A sophisticated Model Context Protocol client that demonstrates:
+- Autonomous interaction with MCP servers
+- Dynamic resource and tool discovery
+- Intelligent capability testing
+- Structured exploration workflows
+- Client capability management (sampling, roots, experimental tools)
 """
-
-import asyncio
-import json
-from typing import Optional, List, Dict, Any, Callable
-from abc import ABC, abstractmethod
-from pydantic import ValidationError
 
 from mcp import ClientSession, types, shared
 from mcp.client.sse import sse_client
 from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
+from typing import List, Dict, Any, Optional, Tuple
+from pydantic import ValidationError
+import json
+import asyncio
+import logging
+from dataclasses import dataclass
+from datetime import datetime
 
 # Configuration
 MCP_SERVER_URL = "http://localhost:8080/sse"
-ENABLE_DEBUG_LOGGING = True
+CLIENT_NAME = "Enhanced-MCP-Agent"
+CLIENT_VERSION = "2.0.0"
+
+# Setup logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 
-class MCPLogger:
-    """Simple logging utility with emoji indicators."""
+@dataclass
+class ServerCapabilities:
+    """Track discovered server capabilities"""
+    prompts: List[types.Prompt] = None
+    tools: List[types.Tool] = None
+    resources: List[types.Resource] = None
+    resource_templates: List[types.ResourceTemplate] = None
+    
+    def __post_init__(self):
+        self.prompts = self.prompts or []
+        self.tools = self.tools or []
+        self.resources = self.resources or []
+        self.resource_templates = self.resource_templates or []
 
-    @staticmethod
-    def log(message: str, level: str = "INFO"):
-        emoji_map = {
-            "INFO": "ℹ️",
-            "SUCCESS": "✅",
-            "WARNING": "⚠️",
-            "ERROR": "❌",
-            "DEBUG": "🔍",
+
+class EnhancedMCPClient:
+    """Enhanced MCP Client with autonomous capabilities"""
+    
+    def __init__(self, server_url: str = MCP_SERVER_URL):
+        self.server_url = server_url
+        self.session: Optional[ClientSession] = None
+        self.capabilities = ServerCapabilities()
+        self.client_capabilities = {
+            'sampling': False,
+            'roots': False,
+            'experimental_tools': False
         }
-        if ENABLE_DEBUG_LOGGING or level != "DEBUG":
-            print(f"{emoji_map.get(level, '📝')} [{level}] {message}")
-
-
-class MCPClientHandler(ABC):
-    """Abstract base class for handling MCP client events."""
-
-    @abstractmethod
-    async def on_sampling_request(
+        
+    async def __aenter__(self):
+        """Async context manager entry"""
+        return self
+    
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        """Async context manager exit"""
+        if self.session:
+            # Cleanup if needed
+            pass
+    
+    # ================================
+    # CLIENT CAPABILITY CALLBACKS
+    # ================================
+    
+    async def sampling_callback(
         self,
         context: shared.context.RequestContext,
         arguments: types.CreateMessageRequestParams,
     ) -> types.CreateMessageResult:
-        """Handle sampling requests from MCP server."""
-        pass
-
-    @abstractmethod
-    async def on_list_roots_request(
-        self, context: shared.context.RequestContext
-    ) -> types.ListRootsResult:
-        """Handle root directory listing requests."""
-        pass
-
-    async def on_logging_message(self, level: str, message: str):
-        """Handle logging messages from MCP server."""
-        MCPLogger.log(f"MCP Server: {message}", level.upper())
-
-    async def on_raw_message(self, message: types.JSONRPCMessage):
-        """Handle raw JSON-RPC messages."""
-        if ENABLE_DEBUG_LOGGING:
-            MCPLogger.log(f"Raw message: {message}", "DEBUG")
-
-
-class DefaultMCPHandler(MCPClientHandler):
-    """Default implementation of MCP client event handlers."""
-
-    async def on_sampling_request(
-        self,
-        context: shared.context.RequestContext,
-        arguments: types.CreateMessageRequestParams,
-    ) -> types.CreateMessageResult:
-        """Default sampling handler - simulates basic AI responses."""
-        MCPLogger.log("Handling sampling request", "DEBUG")
-
-        # Check if this is a root listing request
+        """Handle sampling requests from the server (LLM completions)"""
+        logger.info("🤖 [Sampling] Server requested LLM completion")
+        
         try:
-            root = types.Root(**arguments.metadata)
-            return await self._simulate_root_listing(root)
-        except (ValidationError, TypeError, KeyError):
-            # Regular text message
-            return await self._simulate_text_response(arguments)
-
-    async def on_list_roots_request(
-        self, context: shared.context.RequestContext
-    ) -> types.ListRootsResult:
-        """Provide default root directories."""
-        roots = [
-            types.Root(uri="file:///workspace", name="Workspace"),
-            types.Root(uri="file:///home/user/projects", name="Projects"),
-            types.Root(uri="file:///tmp", name="Temporary Files"),
-        ]
-        MCPLogger.log(f"Providing {len(roots)} root directories")
-        return types.ListRootsResult(roots=roots)
-
-    async def _simulate_root_listing(
-        self, root: types.Root
+            # Check if this is a roots-related request
+            if hasattr(arguments, 'metadata') and arguments.metadata:
+                root = types.Root(**arguments.metadata)
+                return await self.handle_root_request(context, root)
+            else:
+                return await self.handle_text_sampling(context, arguments)
+                
+        except (ValidationError, TypeError) as e:
+            logger.warning(f"Sampling callback validation error: {e}")
+            return await self.handle_text_sampling(context, arguments)
+    
+    async def handle_root_request(
+        self,
+        context: shared.context.RequestContext,
+        root: types.Root,
     ) -> types.CreateMessageResult:
-        """Simulate directory listing for a root."""
-        MCPLogger.log(f"Simulating directory listing for: {root.uri}")
-
-        fake_listing = f"""Directory contents for {root.name}:
-- main.py (Python script)
-- requirements.txt (Dependencies)  
-- utils/ (Utility modules)
-- data/ (Data files)
-- README.md (Documentation)
-- .gitignore (Git ignore file)"""
-
-        return types.CreateMessageResult(
-            role="assistant",
-            content=types.TextContent(type="text", text=fake_listing),
-            model="mcp-client-v1",
-        )
-
-    async def _simulate_text_response(
-        self, arguments: types.CreateMessageRequestParams
+        """Handle root directory listing requests"""
+        logger.info(f"📁 [Roots] Processing root request: {root.uri}")
+        
+        try:
+            # Simulate directory listing for the root
+            if "file://" in root.uri:
+                fake_listing = (
+                    "📂 Root Directory Contents:\n"
+                    "📁 src/\n"
+                    "📁 docs/\n"
+                    "📁 tests/\n"
+                    "📄 README.md\n"
+                    "📄 requirements.txt\n"
+                    "💻 main.py\n"
+                    "🔧 config.json"
+                )
+            else:
+                fake_listing = f"📂 Contents of {root.name}:\n- Directory listing not available for {root.uri}"
+            
+            return types.CreateMessageResult(
+                role="user",
+                content=types.TextContent(type="text", text=fake_listing),
+                model="root-reader-v2",
+            )
+            
+        except Exception as e:
+            logger.error(f"Error handling root request: {e}")
+            return types.CreateMessageResult(
+                role="user",
+                content=types.TextContent(
+                    type="text",
+                    text=f"Error accessing root {root.uri}: {str(e)}"
+                ),
+                model="root-reader-v2",
+            )
+    
+    async def handle_text_sampling(
+        self,
+        context: shared.context.RequestContext,
+        arguments: types.CreateMessageRequestParams,
     ) -> types.CreateMessageResult:
-        """Simulate AI response to text messages."""
-        message_text = (
-            arguments.messages[0].content.text if arguments.messages else "No message"
+        """Handle regular text sampling requests"""
+        if not arguments.messages:
+            message_text = "Hello from the enhanced MCP client!"
+        else:
+            message_text = arguments.messages[0].content.text
+        
+        logger.info(f"💬 [Sampling] Processing message: {message_text[:50]}...")
+        
+        # Simulate an intelligent response
+        response_text = (
+            f"🤖 **Enhanced Client Response**\n\n"
+            f"📥 **Received:** {message_text}\n"
+            f"🕒 **Timestamp:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+            f"🔧 **Client:** {CLIENT_NAME} v{CLIENT_VERSION}\n\n"
+            f"✅ **Status:** Message processed successfully by autonomous agent"
         )
-        response_text = f"Simulated AI response to: {message_text}"
-
+        
         return types.CreateMessageResult(
             role="assistant",
             content=types.TextContent(type="text", text=response_text),
-            model="mcp-client-v1",
+            model="enhanced-mcp-client-v2",
             stopReason="endTurn",
         )
-
-
-class MCPClient:
-    """
-    Core MCP client implementation with clean protocol handling.
-
-    This class handles the MCP protocol implementation without exploration logic.
-    It provides a clean interface for MCP operations.
-    """
-
-    def __init__(self, server_url: str, handler: Optional[MCPClientHandler] = None):
-        self.server_url = server_url
-        self.handler = handler or DefaultMCPHandler()
-        self.session: Optional[ClientSession] = None
-        self._initialization_result: Optional[types.InitializeResult] = None
-
-    async def __aenter__(self):
-        """Async context manager entry."""
-        await self.connect()
-        return self
-
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
-        """Async context manager exit."""
-        await self.disconnect()
-
-    async def connect(self):
-        """Establish connection to MCP server."""
-        MCPLogger.log(f"Connecting to MCP server: {self.server_url}")
-
-        self._read, self._write = await sse_client(self.server_url).__aenter__()
-        self.session = ClientSession(
-            self._read,
-            self._write,
-            sampling_callback=self.handler.on_sampling_request,
-            list_roots_callback=self.handler.on_list_roots_request,
-            logging_callback=self.handler.on_logging_message,
-            message_handler=self.handler.on_raw_message,
+    
+    async def list_roots_callback(
+        self,
+        context: shared.context.RequestContext,
+    ) -> types.ListRootsResult:
+        """Provide available filesystem roots"""
+        logger.info("🗂️ [Roots] Client providing available roots")
+        
+        roots = [
+            types.Root(uri="file:///", name="System Root"),
+            types.Root(uri="file:///home", name="Home Directory"),
+            types.Root(uri="file:///tmp", name="Temporary Directory"),
+            types.Root(uri="file:///var/log", name="Log Directory"),
+        ]
+        
+        return types.ListRootsResult(roots=roots)
+    
+    async def logging_callback(self, level: str, message: str):
+        """Handle server logging messages"""
+        logger.info(f"🔊 [Server-{level.upper()}] {message}")
+    
+    async def message_handler(self, message: types.JSONRPCMessage):
+        """Handle incoming JSON-RPC messages"""
+        logger.debug(f"📨 [Message] Received: {message}")
+    
+    # ================================
+    # SESSION MANAGEMENT
+    # ================================
+    
+    async def initialize_session(self) -> ClientSession:
+        """Initialize the MCP session with full capabilities"""
+        logger.info(f"🚀 Initializing session with {self.server_url}")
+        
+        # Create session with all callbacks
+        read, write = await sse_client(self.server_url).__aenter__()
+        
+        session = ClientSession(
+            read,
+            write,
+            sampling_callback=self.sampling_callback,
+            list_roots_callback=self.list_roots_callback,
+            logging_callback=self.logging_callback,
+            message_handler=self.message_handler,
         )
-
-        await self.session.__aenter__()
-        await self._initialize_protocol()
-
-        MCPLogger.log("MCP client connected successfully", "SUCCESS")
-
-    async def disconnect(self):
-        """Clean disconnect from MCP server."""
-        if self.session:
-            await self.session.__aexit__(None, None, None)
-        MCPLogger.log("MCP client disconnected", "INFO")
-
-    async def _initialize_protocol(self):
-        """Handle MCP protocol initialization."""
-        MCPLogger.log("Initializing MCP protocol...")
-
-        # Define client capabilities
-        capabilities = types.ClientCapabilities(
-            sampling=types.SamplingCapability(),
-            roots=types.RootsCapability(listChanged=True),
-            experimental={"advanced_tools": {}},
-        )
-
-        # Send initialization request
-        result = await self.session.send_request(
+        
+        # Configure client capabilities
+        sampling = types.SamplingCapability()
+        roots = types.RootsCapability(listChanged=True)
+        
+        # Initialize the session
+        result = await session.send_request(
             types.ClientRequest(
                 types.InitializeRequest(
                     method="initialize",
                     params=types.InitializeRequestParams(
                         protocolVersion=types.LATEST_PROTOCOL_VERSION,
-                        capabilities=capabilities,
+                        capabilities=types.ClientCapabilities(
+                            sampling=sampling,
+                            roots=roots,
+                            experimental={"advanced_tools": {}}
+                        ),
                         clientInfo=types.Implementation(
-                            name="mcp-client", version="1.0.0"
+                            name=CLIENT_NAME,
+                            version=CLIENT_VERSION
                         ),
                     ),
                 )
             ),
             types.InitializeResult,
         )
-
+        
         # Verify protocol compatibility
         if result.protocolVersion not in SUPPORTED_PROTOCOL_VERSIONS:
-            raise RuntimeError(
-                f"Unsupported protocol version: {result.protocolVersion}. "
-                f"Supported: {SUPPORTED_PROTOCOL_VERSIONS}"
-            )
-
+            raise RuntimeError(f"Unsupported protocol version: {result.protocolVersion}")
+        
         # Send initialized notification
-        await self.session.send_notification(
+        await session.send_notification(
             types.ClientNotification(
                 types.InitializedNotification(method="notifications/initialized")
             )
         )
-
-        self._initialization_result = result
-        MCPLogger.log("MCP protocol initialized successfully", "SUCCESS")
-
-    # Protocol Operations
-    async def ping(self):
-        """Send ping to server."""
-        await self.session.send_ping()
-
-    async def list_prompts(self) -> types.ListPromptsResult:
-        """List available prompts."""
-        return await self.session.list_prompts()
-
-    async def get_prompt(
-        self, name: str, arguments: Dict[str, Any]
-    ) -> types.GetPromptResult:
-        """Execute a prompt with arguments."""
-        return await self.session.get_prompt(name, arguments)
-
-    async def list_tools(self) -> types.ListToolsResult:
-        """List available tools."""
-        return await self.session.list_tools()
-
-    async def call_tool(
-        self, name: str, arguments: Dict[str, Any]
-    ) -> types.CallToolResult:
-        """Call a tool with arguments."""
-        return await self.session.call_tool(name, arguments)
-
-    async def list_resources(self) -> types.ListResourcesResult:
-        """List available resources."""
-        return await self.session.list_resources()
-
-    async def list_resource_templates(self) -> types.ListResourceTemplatesResult:
-        """List resource templates."""
-        return await self.session.list_resource_templates()
-
-    async def read_resource(self, uri: str):
-        """Read a resource."""
-        return await self.session.read_resource(uri)
-
-    async def subscribe_resource(self, uri: str):
-        """Subscribe to resource changes."""
-        await self.session.subscribe_resource(uri)
-
-    async def unsubscribe_resource(self, uri: str):
-        """Unsubscribe from resource changes."""
-        await self.session.unsubscribe_resource(uri)
-
-    async def send_progress_notification(
-        self, progress_token: str, progress: float, total: float = 1.0
-    ):
-        """Send progress notification."""
-        await self.session.send_progress_notification(progress_token, progress, total)
-
-    # Getters for client state
-    @property
-    def is_connected(self) -> bool:
-        """Check if client is connected."""
-        return self.session is not None and self._initialization_result is not None
-
-    @property
-    def server_info(self) -> Optional[types.Implementation]:
-        """Get server information."""
-        return (
-            self._initialization_result.serverInfo
-            if self._initialization_result
-            else None
-        )
-
-    @property
-    def protocol_version(self) -> Optional[str]:
-        """Get negotiated protocol version."""
-        return (
-            self._initialization_result.protocolVersion
-            if self._initialization_result
-            else None
-        )
-
-
-class MCPExplorer:
-    """
-    Educational MCP exploration class.
-
-    This class focuses on discovering and demonstrating MCP capabilities
-    without being concerned with protocol implementation details.
-    """
-
-    def __init__(self, client: MCPClient):
-        self.client = client
-        self.exploration_results = {
-            "prompts": [],
-            "tools": [],
-            "resources": [],
-            "capabilities_tested": [],
-        }
-
-    async def run_full_exploration(self):
-        """Run comprehensive MCP exploration."""
-        MCPLogger.log("🚀 Starting comprehensive MCP exploration...")
-
+        
+        logger.info(f"✅ Session initialized with protocol version {result.protocolVersion}")
+        self.session = session
+        return session
+    
+    # ================================
+    # DISCOVERY AND EXPLORATION
+    # ================================
+    
+    async def discover_server_capabilities(self) -> ServerCapabilities:
+        """Discover all server capabilities and cache them"""
+        if not self.session:
+            raise RuntimeError("Session not initialized")
+        
+        logger.info("🔍 Discovering server capabilities...")
+        
+        # Discover prompts
         try:
-            # Core capability exploration
-            await self.explore_prompts()
-            await self.explore_tools()
-            await self.explore_resources()
-            await self.test_protocol_features()
-
-            # Generate exploration report
-            await self.generate_exploration_report()
-
-            MCPLogger.log("🎉 MCP exploration completed successfully!", "SUCCESS")
-
+            prompts_result = await self.session.list_prompts()
+            self.capabilities.prompts = prompts_result.prompts
+            logger.info(f"📋 Found {len(self.capabilities.prompts)} prompts")
         except Exception as e:
-            MCPLogger.log(f"Exploration failed: {e}", "ERROR")
-            raise
-
-    async def explore_prompts(self):
-        """Discover and test prompt capabilities."""
-        MCPLogger.log("🔍 Exploring prompts...")
-
+            logger.warning(f"Failed to discover prompts: {e}")
+        
+        # Discover tools
         try:
-            result = await self.client.list_prompts()
-            prompts = result.prompts
-
-            if not prompts:
-                MCPLogger.log("No prompts available", "WARNING")
-                return
-
-            for prompt in prompts:
-                MCPLogger.log(
-                    f"Found prompt: '{prompt.name}' (requires {len(prompt.arguments)} args)"
+            tools_result = await self.session.list_tools()
+            self.capabilities.tools = tools_result.tools
+            logger.info(f"🛠️ Found {len(self.capabilities.tools)} tools")
+        except Exception as e:
+            logger.warning(f"Failed to discover tools: {e}")
+        
+        # Discover resource templates
+        try:
+            templates_result = await self.session.list_resource_templates()
+            self.capabilities.resource_templates = templates_result.resourceTemplates
+            logger.info(f"📄 Found {len(self.capabilities.resource_templates)} resource templates")
+        except Exception as e:
+            logger.warning(f"Failed to discover resource templates: {e}")
+        
+        # Discover resources
+        try:
+            resources_result = await self.session.list_resources()
+            self.capabilities.resources = resources_result.resources
+            logger.info(f"🗂️ Found {len(self.capabilities.resources)} resources")
+        except Exception as e:
+            logger.warning(f"Failed to discover resources: {e}")
+        
+        return self.capabilities
+    
+    async def test_client_capabilities(self) -> Dict[str, bool]:
+        """Test various client capabilities with the server"""
+        logger.info("🧪 Testing client capabilities...")
+        
+        results = {}
+        
+        # Test sampling capability
+        try:
+            if any(t.name == "check_sampling_capability" for t in self.capabilities.tools):
+                result = await self.session.call_tool(
+                    "check_sampling_capability",
+                    {"prompt": "Test prompt for capability checking"}
                 )
-                self.exploration_results["prompts"].append(
-                    {
-                        "name": prompt.name,
-                        "description": getattr(prompt, "description", "No description"),
-                        "arguments": [arg.name for arg in prompt.arguments],
-                    }
-                )
-
-                # Test first prompt
-                if prompt == prompts[0]:
-                    await self._test_prompt_execution(prompt)
-
-        except Exception as e:
-            MCPLogger.log(f"Error exploring prompts: {e}", "ERROR")
-
-    async def _test_prompt_execution(self, prompt):
-        """Test executing a prompt with sample data."""
-        try:
-            # Generate sample arguments
-            sample_args = self._generate_sample_arguments(prompt.arguments)
-
-            MCPLogger.log(f"Testing prompt '{prompt.name}' with: {sample_args}")
-            result = await self.client.get_prompt(prompt.name, sample_args)
-
-            for msg in result.messages:
-                preview = self._truncate_text(msg.content.text, 100)
-                MCPLogger.log(f"Prompt result ({msg.role}): {preview}")
-
-        except Exception as e:
-            MCPLogger.log(f"Prompt test failed for '{prompt.name}': {e}", "ERROR")
-
-    async def explore_tools(self):
-        """Discover and test tool capabilities."""
-        MCPLogger.log("🔧 Exploring tools...")
-
-        try:
-            result = await self.client.list_tools()
-            tools = result.tools
-
-            if not tools:
-                MCPLogger.log("No tools available", "WARNING")
-                return
-
-            for tool in tools:
-                MCPLogger.log(f"Found tool: '{tool.name}' - {tool.description}")
-                self.exploration_results["tools"].append(
-                    {
-                        "name": tool.name,
-                        "description": tool.description,
-                        "input_schema": tool.inputSchema,
-                    }
-                )
-
-            # Test common tools
-            await self._test_common_tools(tools)
-
-        except Exception as e:
-            MCPLogger.log(f"Error exploring tools: {e}", "ERROR")
-
-    async def _test_common_tools(self, tools):
-        """Test commonly available tools."""
-        common_tool_tests = [
-            ("list_directory", {"directory_path": "."}),
-            ("check_sampling_capability", {"prompt": "Hello MCP!"}),
-            ("check_experimental_tools_capability", {}),
-            ("check_roots_capability", {}),
-        ]
-
-        available_tools = {tool.name for tool in tools}
-
-        for tool_name, test_args in common_tool_tests:
-            if tool_name in available_tools:
-                await self._test_tool_execution(tool_name, test_args)
-
-    async def _test_tool_execution(self, tool_name: str, args: Dict[str, Any]):
-        """Test individual tool execution."""
-        try:
-            MCPLogger.log(f"Testing tool '{tool_name}' with: {args}")
-            result = await self.client.call_tool(tool_name, args)
-
-            for item in result.content:
-                if hasattr(item, "text"):
-                    preview = self._truncate_text(item.text, 150)
-                    MCPLogger.log(f"Tool result: {preview}")
-                else:
-                    MCPLogger.log(f"Tool result: {type(item).__name__}")
-
-        except Exception as e:
-            MCPLogger.log(f"Tool test failed for '{tool_name}': {e}", "ERROR")
-
-    async def explore_resources(self):
-        """Discover and test resource capabilities."""
-        MCPLogger.log("📚 Exploring resources...")
-
-        try:
-            # Explore resource templates
-            templates_result = await self.client.list_resource_templates()
-            if templates_result.resourceTemplates:
-                MCPLogger.log(
-                    f"Found {len(templates_result.resourceTemplates)} resource templates"
-                )
-                for template in templates_result.resourceTemplates:
-                    MCPLogger.log(f"Template: {template.uriTemplate}")
-
-            # Explore actual resources
-            resources_result = await self.client.list_resources()
-            resources = resources_result.resources
-
-            if not resources:
-                MCPLogger.log("No resources available", "WARNING")
-                return
-
-            MCPLogger.log(f"Found {len(resources)} resources")
-            for resource in resources:
-                MCPLogger.log(f"Resource: {resource.uri}")
-                self.exploration_results["resources"].append(
-                    {
-                        "uri": resource.uri,
-                        "name": getattr(resource, "name", resource.uri),
-                        "mimeType": getattr(resource, "mimeType", "unknown"),
-                    }
-                )
-
-            # Test resource reading
-            await self._test_resource_access(resources[:3])  # Test first 3
-
-        except Exception as e:
-            MCPLogger.log(f"Error exploring resources: {e}", "ERROR")
-
-    async def _test_resource_access(self, resources):
-        """Test reading and subscribing to resources."""
-        for resource in resources:
-            try:
-                # Test reading
-                MCPLogger.log(f"Reading resource: {resource.uri}")
-                metadata, content = await self.client.read_resource(resource.uri)
-
-                content_preview = self._truncate_text(str(content), 100)
-                MCPLogger.log(f"Resource content preview: {content_preview}")
-
-                # Test subscription
-                await self._test_resource_subscription(resource.uri)
-
-            except Exception as e:
-                MCPLogger.log(
-                    f"Resource access failed for '{resource.uri}': {e}", "ERROR"
-                )
-
-    async def _test_resource_subscription(self, uri: str):
-        """Test resource subscription lifecycle."""
-        try:
-            MCPLogger.log(f"Testing subscription for: {uri}")
-            await self.client.subscribe_resource(uri)
-            MCPLogger.log("Subscription successful", "SUCCESS")
-
-            # Clean up
-            await self.client.unsubscribe_resource(uri)
-            MCPLogger.log("Unsubscription successful", "SUCCESS")
-
-        except Exception as e:
-            MCPLogger.log(f"Subscription test failed: {e}", "WARNING")
-
-    async def test_protocol_features(self):
-        """Test miscellaneous protocol features."""
-        MCPLogger.log("🧪 Testing protocol features...")
-
-        # Test ping
-        try:
-            await self.client.ping()
-            MCPLogger.log("Ping test successful", "SUCCESS")
-            self.exploration_results["capabilities_tested"].append("ping")
-        except Exception as e:
-            MCPLogger.log(f"Ping test failed: {e}", "ERROR")
-
-        # Test progress notifications
-        try:
-            await self.client.send_progress_notification("exploration", 0.8)
-            MCPLogger.log("Progress notification test successful", "SUCCESS")
-            self.exploration_results["capabilities_tested"].append(
-                "progress_notifications"
-            )
-        except Exception as e:
-            MCPLogger.log(f"Progress notification test failed: {e}", "ERROR")
-
-    async def generate_exploration_report(self):
-        """Generate a summary of exploration results."""
-        MCPLogger.log("📊 Generating exploration report...")
-
-        report = f"""
-=== MCP EXPLORATION REPORT ===
-Server: {self.client.server_url}
-Protocol Version: {self.client.protocol_version}
-Server Info: {self.client.server_info.name if self.client.server_info else 'Unknown'}
-
-Prompts Found: {len(self.exploration_results['prompts'])}
-Tools Found: {len(self.exploration_results['tools'])}
-Resources Found: {len(self.exploration_results['resources'])}
-Capabilities Tested: {', '.join(self.exploration_results['capabilities_tested'])}
-
-=== SUMMARY ===
-✅ Connection: Successful
-✅ Protocol Handshake: Successful  
-✅ Capability Discovery: {len(self.exploration_results['prompts']) + len(self.exploration_results['tools']) + len(self.exploration_results['resources'])} items found
-✅ Feature Testing: {len(self.exploration_results['capabilities_tested'])} features tested
-        """
-
-        print(report)
-
-    # Utility methods
-    def _generate_sample_arguments(self, arg_specs) -> Dict[str, Any]:
-        """Generate sample arguments for testing."""
-        args = {}
-        for arg_spec in arg_specs:
-            name = arg_spec.name.lower()
-            if "path" in name:
-                args[arg_spec.name] = "/sample/path.txt"
-            elif "chunk" in name or "count" in name:
-                args[arg_spec.name] = "5"
-            elif "url" in name:
-                args[arg_spec.name] = "https://example.com"
+                success = "✅ Supported" in result.content[0].text
+                results['sampling'] = success
+                logger.info(f"🤖 Sampling capability: {'✅' if success else '❌'}")
             else:
-                args[arg_spec.name] = "sample_value"
-        return args
+                results['sampling'] = False
+                logger.info("🤖 Sampling capability: ❓ (tool not available)")
+        except Exception as e:
+            results['sampling'] = False
+            logger.warning(f"Sampling test failed: {e}")
+        
+        # Test roots capability
+        try:
+            if any(t.name == "check_roots_capability" for t in self.capabilities.tools):
+                result = await self.session.call_tool("check_roots_capability", {})
+                success = "✅ Roots capability supported" in result.content[0].text
+                results['roots'] = success
+                logger.info(f"🗂️ Roots capability: {'✅' if success else '❌'}")
+            else:
+                results['roots'] = False
+                logger.info("🗂️ Roots capability: ❓ (tool not available)")
+        except Exception as e:
+            results['roots'] = False
+            logger.warning(f"Roots test failed: {e}")
+        
+        # Test experimental tools capability
+        try:
+            if any(t.name == "check_experimental_tools_capability" for t in self.capabilities.tools):
+                result = await self.session.call_tool("check_experimental_tools_capability", {})
+                success = "✅ Supported" in result.content[0].text
+                results['experimental_tools'] = success
+                logger.info(f"🔬 Experimental tools: {'✅' if success else '❌'}")
+            else:
+                results['experimental_tools'] = False
+                logger.info("🔬 Experimental tools: ❓ (tool not available)")
+        except Exception as e:
+            results['experimental_tools'] = False
+            logger.warning(f"Experimental tools test failed: {e}")
+        
+        self.client_capabilities = results
+        return results
+    
+    # ================================
+    # INTELLIGENT INTERACTIONS
+    # ================================
+    
+    async def explore_filesystem(self, root_path: str = ".") -> None:
+        """Intelligently explore the filesystem"""
+        logger.info(f"🧭 Starting intelligent filesystem exploration from: {root_path}")
+        
+        # Step 1: List directory contents
+        if any(t.name == "list_directory" for t in self.capabilities.tools):
+            logger.info("📂 Step 1: Listing directory contents...")
+            try:
+                result = await self.session.call_tool(
+                    "list_directory",
+                    {"directory_path": root_path, "include_hidden": False}
+                )
+                print("\n" + "="*60)
+                print("📂 DIRECTORY CONTENTS")
+                print("="*60)
+                for item in result.content:
+                    print(item.text)
+            except Exception as e:
+                logger.error(f"Failed to list directory: {e}")
+        
+        # Step 2: Search for interesting files
+        logger.info("🔍 Step 2: Searching for Python files...")
+        if any(t.name == "search_files" for t in self.capabilities.tools):
+            try:
+                result = await self.session.call_tool(
+                    "search_files",
+                    {"root_path": root_path, "search_text": "def ", "max_results": 5}
+                )
+                print("\n" + "="*60)
+                print("🔍 SEARCH RESULTS (Python functions)")
+                print("="*60)
+                for item in result.content:
+                    print(item.text)
+            except Exception as e:
+                logger.error(f"Failed to search files: {e}")
+        
+        # Step 3: Get detailed info about a specific file
+        logger.info("📊 Step 3: Getting detailed file information...")
+        if any(t.name == "get_file_info" for t in self.capabilities.tools):
+            try:
+                # Try to get info about the client script itself
+                result = await self.session.call_tool(
+                    "get_file_info",
+                    {"file_path": __file__}
+                )
+                print("\n" + "="*60)
+                print("📊 FILE INFORMATION")
+                print("="*60)
+                for item in result.content:
+                    print(item.text)
+            except Exception as e:
+                logger.error(f"Failed to get file info: {e}")
+    
+    async def demonstrate_resources(self) -> None:
+        """Demonstrate resource usage"""
+        logger.info("📚 Demonstrating resource capabilities...")
+        
+        # Read sample resource
+        try:
+            logger.info("📖 Reading sample resource...")
+            data, content = await self.session.read_resource("fs://sample")
+            print("\n" + "="*60)
+            print("📚 SAMPLE RESOURCE")
+            print("="*60)
+            print(json.dumps(content, indent=2))
+        except Exception as e:
+            logger.error(f"Failed to read sample resource: {e}")
+        
+        # Demonstrate file chunking
+        try:
+            current_file = __file__
+            logger.info(f"📦 Reading chunk metadata for: {current_file}")
+            data, content = await self.session.read_resource(f"fs://chunks/{current_file}")
+            print("\n" + "="*60)
+            print("📦 FILE CHUNK METADATA")
+            print("="*60)
+            print(json.dumps(content, indent=2))
+            
+            # Read first chunk
+            if isinstance(content, dict) and content.get('total_chunks', 0) > 0:
+                logger.info("📖 Reading first chunk...")
+                chunk_data, chunk_content = await self.session.read_resource(
+                    f"fs://chunk/{current_file}/0"
+                )
+                print("\n" + "="*60)
+                print("📖 FIRST CHUNK CONTENT")
+                print("="*60)
+                print(chunk_content)
+                
+        except Exception as e:
+            logger.error(f"Failed to demonstrate chunking: {e}")
+    
+    async def demonstrate_prompts(self) -> None:
+        """Demonstrate prompt usage"""
+        logger.info("💬 Demonstrating prompt capabilities...")
+        
+        for prompt in self.capabilities.prompts[:3]:  # Show first 3 prompts
+            try:
+                logger.info(f"💬 Executing prompt: {prompt.name}")
+                
+                # Prepare arguments based on prompt requirements
+                args = {}
+                if prompt.arguments:
+                    for arg in prompt.arguments:
+                        if arg.name == "file_path":
+                            args[arg.name] = __file__
+                        elif arg.name == "total_chunks":
+                            args[arg.name] = "5"
+                        elif arg.name == "root_path":
+                            args[arg.name] = "."
+                        elif arg.name == "search_text":
+                            args[arg.name] = "async"
+                        elif arg.name == "prompt":
+                            args[arg.name] = "Hello from the client!"
+                
+                result = await self.session.get_prompt(prompt.name, arguments=args)
+                print(f"\n{'='*60}")
+                print(f"💬 PROMPT: {prompt.name}")
+                print("="*60)
+                for msg in result.messages:
+                    print(f"🧾 {msg.role.capitalize()}: {msg.content.text}")
+                    
+            except Exception as e:
+                logger.error(f"Failed to execute prompt {prompt.name}: {e}")
+    
+    async def send_progress_updates(self) -> None:
+        """Send progress notifications during operations"""
+        logger.info("⏳ Sending progress updates...")
+        
+        try:
+            for i in range(5):
+                progress = (i + 1) / 5
+                await self.session.send_progress_notification(
+                    progress_token="demo-progress",
+                    progress=progress,
+                    total=1.0
+                )
+                logger.info(f"📊 Progress: {progress*100:.0f}%")
+                await asyncio.sleep(0.5)  # Simulate work
+                
+        except Exception as e:
+            logger.error(f"Failed to send progress updates: {e}")
+    
+    # ================================
+    # MAIN EXECUTION WORKFLOW
+    # ================================
+    
+    async def run_comprehensive_demo(self) -> None:
+        """Run a comprehensive demonstration of all capabilities"""
+        logger.info("🎯 Starting comprehensive MCP demonstration...")
+        
+        try:
+            # Initialize session
+            await self.initialize_session()
+            
+            # Test basic connectivity
+            logger.info("🏓 Testing server connectivity...")
+            await self.session.send_ping()
+            logger.info("✅ Server connectivity confirmed")
+            
+            # Discover capabilities
+            await self.discover_server_capabilities()
+            
+            # Test client capabilities
+            await self.test_client_capabilities()
+            
+            # Print summary
+            self.print_capabilities_summary()
+            
+            # Run demonstrations
+            await self.demonstrate_prompts()
+            await self.demonstrate_resources()
+            await self.explore_filesystem()
+            await self.send_progress_updates()
+            
+            # Final status
+            logger.info("🎉 Comprehensive demonstration completed successfully!")
+            
+        except Exception as e:
+            logger.error(f"❌ Demo failed: {e}")
+            raise
+    
+    def print_capabilities_summary(self) -> None:
+        """Print a summary of discovered capabilities"""
+        print(f"\n{'='*80}")
+        print(f"🎯 MCP SERVER CAPABILITIES SUMMARY")
+        print(f"{'='*80}")
+        
+        print(f"📋 Prompts: {len(self.capabilities.prompts)}")
+        for prompt in self.capabilities.prompts:
+            args_str = f" ({len(prompt.arguments)} args)" if prompt.arguments else ""
+            print(f"   💬 {prompt.name}{args_str}")
+        
+        print(f"\n🛠️ Tools: {len(self.capabilities.tools)}")
+        for tool in self.capabilities.tools:
+            print(f"   🔧 {tool.name}: {tool.description[:60]}...")
+        
+        print(f"\n📄 Resource Templates: {len(self.capabilities.resource_templates)}")
+        for template in self.capabilities.resource_templates:
+            print(f"   🗂️ {template.uriTemplate}")
+        
+        print(f"\n🗂️ Resources: {len(self.capabilities.resources)}")
+        for resource in self.capabilities.resources:
+            print(f"   📚 {resource.uri}")
+        
+        print(f"\n🧪 Client Capabilities:")
+        for cap, supported in self.client_capabilities.items():
+            status = "✅" if supported else "❌"
+            print(f"   {status} {cap.replace('_', ' ').title()}")
+        
+        print(f"{'='*80}\n")
 
-    def _truncate_text(self, text: str, max_length: int) -> str:
-        """Truncate text with ellipsis if too long."""
-        return text[:max_length] + "..." if len(text) > max_length else text
 
-
-async def basic_client_usage():
-    """Example of basic MCP client usage."""
-    async with MCPClient(MCP_SERVER_URL) as client:
-        # Basic operations
-        tools = await client.list_tools()
-        print(f"Available tools: {[t.name for t in tools.tools]}")
-
-        resources = await client.list_resources()
-        print(f"Available resources: {[r.uri for r in resources.resources]}")
-
-
-async def full_exploration_example():
-    """Example of comprehensive MCP exploration."""
-    handler = DefaultMCPHandler()
-
-    async with MCPClient(MCP_SERVER_URL, handler) as client:
-        explorer = MCPExplorer(client)
-        await explorer.run_full_exploration()
-
+# ================================
+# MAIN EXECUTION
+# ================================
 
 async def main():
-    """Main entry point with usage examples."""
-    print("=" * 60)
-    print("🔍 MCP CLIENT & EXPLORER")
-    print("=" * 60)
-    print("Choose exploration mode:")
-    print("1. Basic client operations")
-    print("2. Full capability exploration")
-    print("=" * 60)
-
+    """Main execution function"""
+    logger.info(f"🚀 Starting {CLIENT_NAME} v{CLIENT_VERSION}")
+    
     try:
-        # For this demo, run full exploration
-        await full_exploration_example()
+        async with EnhancedMCPClient() as client:
+            await client.run_comprehensive_demo()
+            
+    except KeyboardInterrupt:
+        logger.info("👋 Demo interrupted by user")
     except Exception as e:
-        MCPLogger.log(f"Application error: {e}", "ERROR")
+        logger.error(f"❌ Fatal error: {e}")
         raise
 
 
