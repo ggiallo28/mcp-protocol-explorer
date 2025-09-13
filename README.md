@@ -6,292 +6,321 @@ This repository contains a comprehensive exploration of the Model Context Protoc
 
 The Model Context Protocol is a standardized way for AI applications to securely connect to external data sources and tools. It provides a unified interface for:
 
-- **Tools**: Functions that can be called by AI models
-- **Resources**: Data sources that can be read and subscribed to
-- **Prompts**: Reusable prompt templates with parameters
-- **Sampling**: AI model integration capabilities
+* **Tools**: Functions that can be called by AI models
+* **Resources**: Data sources that can be read and subscribed to  
+* **Prompts**: Reusable prompt templates with parameters
+* **Sampling**: AI model integration capabilities
 
-## 📁 Project Structure
+## 📁 Repository Structure
 
 ```
-├── mcp_client_explorer.py    # Comprehensive MCP client implementation
-├── mcp_server_routes.py      # FastAPI server integration with LiteLLM
-└── README.md                 # This documentation
+mcp-exploration/
+├── server.py              # Enhanced MCP File System Server
+├── client.py              # Autonomous MCP Client Agent
+├── README.md              # This file
+└── examples/              # Additional examples and demos
 ```
 
-## 🔍 Exploration Journey
-
-### 1. Protocol Fundamentals
-
-**What I Learned:**
-- MCP uses JSON-RPC 2.0 for message exchange
-- Protocol has a strict initialization handshake with capability negotiation
-- Version compatibility is crucial for successful communication
-- Both client and server must declare their capabilities upfront
-
-**Key Implementation Details:**
-```python
-# Protocol initialization requires:
-- protocolVersion: Must be in SUPPORTED_PROTOCOL_VERSIONS
-- capabilities: What the client/server can do
-- clientInfo/serverInfo: Implementation details
-```
-
-### 2. Transport Mechanisms
-
-**Discovered Transport Options:**
-- **SSE (Server-Sent Events)**: Real-time streaming communication
-- **Standard I/O**: Process-based communication
-- **HTTP**: REST API style interactions
-
-**SSE Implementation Insights:**
-- Requires both GET (for establishing connection) and POST (for messages)
-- Handles connection lifecycle (connect, message exchange, disconnect)
-- Supports bidirectional communication despite SSE being unidirectional
-- Graceful error handling for broken connections
-
-### 3. Capability System Deep Dive
-
-#### A. Tools Capability
-**What Tools Provide:**
-- Dynamic function discovery via `list_tools()`
-- Structured input/output with JSON schemas
-- Error handling and validation
-- Both synchronous and asynchronous execution
-
-**Tool Architecture Patterns:**
-```python
-# Local tools (in-process)
-local_tools = global_mcp_tool_registry.list_tools()
-
-# Managed server tools (remote MCP servers)
-managed_tools = await global_mcp_server_manager.list_tools()
-
-# Unified tool execution
-result = await session.call_tool(name, arguments)
-```
-
-#### B. Resources Capability
-**Resource Types Discovered:**
-- **File System Resources**: `fs://path/to/file`
-- **Chunked Resources**: `fs://chunk/file/0` (for large files)
-- **Template Resources**: URI patterns with variables
-- **Dynamic Resources**: Generated content
-
-**Resource Lifecycle:**
-```python
-# Discovery
-templates = await session.list_resource_templates()
-resources = await session.list_resources()
-
-# Access
-data, content = await session.read_resource(uri)
-
-# Monitoring
-await session.subscribe_resource(uri)
-await session.unsubscribe_resource(uri)
-```
-
-#### C. Prompts Capability
-**Prompt System Features:**
-- Parameterized prompt templates
-- Argument validation and type checking
-- Context-aware prompt generation
-- Reusable prompt libraries
-
-**Usage Patterns:**
-```python
-# List available prompts
-prompts = await session.list_prompts()
-
-# Execute with arguments
-result = await session.get_prompt(name, arguments={
-    "file_path": "/example/file.txt",
-    "context": "user_specific_data"
-})
-```
-
-#### D. Sampling Capability
-**Most Complex Discovery:**
-Sampling allows MCP servers to request AI model inference from clients. This creates a bidirectional AI interaction pattern:
-
-```python
-# Server requests sampling from client
-@server.sampling()
-async def handle_sampling(args: CreateMessageRequestParams):
-    # Client must provide AI model response
-    return CreateMessageResult(
-        role="assistant",
-        content=TextContent(text="AI generated response"),
-        model="gpt-4"
-    )
-```
-
-### 4. Integration Patterns
-
-#### A. LiteLLM Integration
-**Discovered Architecture:**
-- MCP servers register as tool providers
-- Tools are exposed through LiteLLM's tool calling interface
-- Unified logging and metrics collection
-- Authentication integration
-
-#### B. Tool Registry Pattern
-**Two-Tier System:**
-1. **Local Registry**: In-process tools for simple operations
-2. **Managed Servers**: External MCP servers for complex capabilities
-
-#### C. Error Handling Strategies
-**Comprehensive Error Management:**
-- Protocol version mismatches
-- Network connectivity issues
-- Tool execution failures
-- Resource access permissions
-- Malformed requests/responses
-
-## 🚀 Key Implementation Insights
-
-### 1. Autonomous Agent Architecture
-The exploration revealed how MCP enables autonomous agents:
-
-```python
-# Agent can dynamically discover capabilities
-tools = await session.list_tools()
-resources = await session.list_resources()
-prompts = await session.list_prompts()
-
-# Agent decides which capabilities to use based on context
-if needs_data:
-    data = await session.read_resource(relevant_uri)
-if needs_processing:
-    result = await session.call_tool(appropriate_tool, args)
-if needs_guidance:
-    guidance = await session.get_prompt(helpful_prompt, context)
-```
-
-### 2. Modular Capability System
-**Unified Treatment Pattern:**
-All MCP capabilities (prompts, tools, resources) are treated uniformly in agent reasoning:
-
-| Capability | Discovery Method | Access Method | Use Case |
-|------------|------------------|---------------|----------|
-| Prompts | `list_prompts()` | `get_prompt(name, args)` | Behavior guidance |
-| Tools | `list_tools()` | `call_tool(name, args)` | Action execution |
-| Resources | `list_resources()` | `read_resource(uri)` | Context enrichment |
-
-### 3. Real-time Communication Patterns
-**SSE + JSON-RPC Combination:**
-- SSE provides the transport layer
-- JSON-RPC provides the message structure
-- Enables both request/response and notification patterns
-- Supports progress updates and streaming responses
-
-## 🧪 Practical Experiments Conducted
-
-### 1. Protocol Compliance Testing
-- Tested initialization handshake variations
-- Verified capability negotiation edge cases
-- Explored protocol version compatibility
-- Validated error response formats
-
-### 2. Tool Execution Patterns
-- Simple parameter-less tools
-- Complex tools with nested JSON arguments
-- Error conditions and recovery
-- Async tool execution patterns
-
-### 3. Resource Access Patterns
-- Static file resources
-- Dynamic/generated resources
-- Large file chunking mechanisms
-- Subscription lifecycle management
-
-### 4. Integration Testing
-- MCP server-to-server communication
-- Client capability simulation
-- Authentication flow integration
-- Logging and observability integration
-
-## 🏗️ Architecture Learnings
-
-### 1. Scalability Patterns
-**Server Management:**
-```python
-# Multiple MCP servers can be managed simultaneously
-global_mcp_server_manager.add_server(server_config)
-# Tools from all servers are unified in a single namespace
-unified_tools = await get_all_tools_from_all_servers()
-```
-
-### 2. Security Considerations
-- Capability-based permissions
-- Request validation and sanitization
-- Resource access control
-- Tool execution sandboxing
-
-### 3. Performance Optimization
-- Connection pooling for managed servers
-- Caching for frequently accessed resources
-- Batch operations where possible
-- Graceful degradation on failures
-
-## 🔧 Running the Exploration
+## 🚀 Quick Start
 
 ### Prerequisites
-```bash
-# Python 3.12+ required for MCP
-pip install mcp==1.6.0
-pip install fastapi uvicorn  # For server routes
-```
 
-### Client Explorer
-```bash
-# Start your MCP server first, then:
-python mcp_client_explorer.py
-```
+- Python 3.12 or higher
+- `mcp==1.6.0` package
+- `uvicorn==0.34.0` (for server)
 
-### Server Routes
+### Installation
+
+1. **Clone the repository:**
+   ```bash
+   git clone <your-repo-url>
+   cd mcp-exploration
+   ```
+
+2. **Install dependencies:**
+   ```bash
+   # The scripts use inline dependencies, but you can also install globally:
+   pip install mcp==1.6.0 uvicorn==0.34.0
+   ```
+
+### Running the Demo
+
+1. **Start the MCP Server:**
+   ```bash
+   python server.py
+   ```
+   The server will start on `http://localhost:8080`
+
+2. **Run the Client (in a separate terminal):**
+   ```bash
+   python client.py
+   ```
+
+## 🏗️ Architecture Overview
+
+### 🖥️ Enhanced File System Server (`server.py`)
+
+A comprehensive MCP server implementation featuring:
+
+#### Core Capabilities
+- **File System Operations**: Directory listing, file reading, search functionality
+- **Chunked File Reading**: Handle large files efficiently with configurable chunk sizes
+- **Resource Templates**: Dynamic URI-based resource access
+- **Client Capability Testing**: Tools to test sampling, roots, and experimental features
+- **Security Features**: File type validation, size limits, path sanitization
+
+#### Available Tools
+| Tool | Description |
+|------|-------------|
+| `list_directory` | Browse directory contents with rich metadata |
+| `search_files` | Find files containing specific text with context |
+| `get_file_info` | Get detailed file information and chunk metadata |
+| `check_sampling_capability` | Test LLM integration capabilities |
+| `check_roots_capability` | Test filesystem access permissions |
+| `check_experimental_tools_capability` | Test experimental feature support |
+
+#### Resource Endpoints
+| Resource | Purpose |
+|----------|---------|
+| `fs://sample` | Server information and capabilities |
+| `fs://chunks/{file_path}` | File chunking metadata and links |
+| `fs://chunk/{file_path}/{index}` | Individual file chunks |
+
+#### Interactive Prompts
+- **Usage Instructions**: Comprehensive server usage guide
+- **Exploration Guide**: Step-by-step filesystem navigation
+- **Capability Testing Guide**: Client capability testing workflows
+- **Result Summary**: Dynamic file processing summaries
+
+### 🤖 Autonomous Client Agent (`client.py`)
+
+An intelligent MCP client that demonstrates advanced interaction patterns:
+
+#### Key Features
+- **Automatic Discovery**: Finds and catalogs all server capabilities
+- **Capability Testing**: Automatically tests client-server feature compatibility
+- **Intelligent Workflows**: Structured exploration and demonstration patterns
+- **Progress Tracking**: Real-time operation progress reporting
+- **Error Resilience**: Graceful handling of failures and partial capabilities
+
+#### Client Capabilities
+- **Sampling**: LLM integration for server-requested completions
+- **Roots**: Filesystem access and navigation
+- **Experimental Tools**: Advanced feature support
+- **Resource Subscriptions**: Dynamic content monitoring
+
+## 🔧 Configuration
+
+### Server Configuration
+
+Edit the constants in `server.py`:
+
 ```python
-# Integration with existing FastAPI application
-from mcp_server_routes import router
-app.include_router(router)
+CHUNK_SIZE = 1024                    # Characters per chunk
+MAX_FILE_SIZE = 10 * 1024 * 1024    # 10MB file size limit
+ALLOWED_EXTENSIONS = {'.txt', '.py', '.js', '.json', '.md', '.yaml', '.yml', '.xml', '.html', '.css'}
 ```
 
-## 📊 Results Summary
+### Client Configuration
 
-### What Works Well
-✅ **Tool Discovery & Execution**: Robust and well-designed
-✅ **Resource Access**: Flexible and powerful
-✅ **Protocol Negotiation**: Reliable handshake mechanism
-✅ **Error Handling**: Comprehensive error reporting
-✅ **SSE Transport**: Efficient real-time communication
+Edit the constants in `client.py`:
 
-### Challenges Encountered
-⚠️ **Python Version Dependency**: Requires 3.10+, limits adoption
-⚠️ **Complex Capability Negotiation**: Intricate handshake process
-⚠️ **Documentation Gaps**: Some edge cases poorly documented
-⚠️ **Tool Namespace Conflicts**: Managing tools from multiple servers
+```python
+MCP_SERVER_URL = "http://localhost:8080/sse"  # Server endpoint
+CLIENT_NAME = "Enhanced-MCP-Agent"            # Client identifier
+CLIENT_VERSION = "2.0.0"                     # Client version
+```
 
-### Opportunities Identified
-🚀 **Agent Orchestration**: Perfect for autonomous AI agents
-🚀 **Plugin Ecosystems**: Extensible tool and resource systems
-🚀 **Multi-Modal AI**: Support for text, images, and documents
-🚀 **Enterprise Integration**: Secure connection to internal systems
+## 📚 Usage Examples
 
-## 🔮 Future Exploration Areas
+### Basic File Operations
 
-1. **Advanced Sampling Patterns**: Bidirectional AI model integration
-2. **Multi-Server Orchestration**: Complex workflows across servers
-3. **Custom Transport Layers**: Alternative communication mechanisms
-4. **Performance Benchmarking**: Latency and throughput analysis
-5. **Security Hardening**: Production deployment considerations
+```python
+# List directory contents
+await session.call_tool("list_directory", {"directory_path": "/path/to/dir"})
 
-## 📚 References
+# Search for files containing text
+await session.call_tool("search_files", {
+    "root_path": "/project", 
+    "search_text": "function_name",
+    "max_results": 10
+})
 
-- [MCP Specification](https://spec.modelcontextprotocol.io/)
-- [MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk)
-- [LiteLLM Documentation](https://docs.litellm.ai/)
+# Get detailed file information
+await session.call_tool("get_file_info", {"file_path": "/path/to/file.txt"})
+```
+
+### Resource Access
+
+```python
+# Read file chunking metadata
+data, content = await session.read_resource("fs://chunks/large_file.txt")
+
+# Read specific chunk
+chunk_data, chunk_content = await session.read_resource("fs://chunk/large_file.txt/0")
+
+# Read server information
+info, data = await session.read_resource("fs://sample")
+```
+
+### Capability Testing
+
+```python
+# Test sampling capability
+result = await session.call_tool("check_sampling_capability", {
+    "prompt": "Test message for LLM"
+})
+
+# Test roots capability  
+result = await session.call_tool("check_roots_capability", {})
+
+# Test experimental tools
+result = await session.call_tool("check_experimental_tools_capability", {})
+```
+
+### Using Prompts
+
+```python
+# Get usage instructions
+result = await session.get_prompt("usage_instructions", {})
+
+# Get exploration guide
+result = await session.get_prompt("exploration_guide", {})
+
+# Get capability testing guide
+result = await session.get_prompt("capability_testing_guide", {})
+```
+
+## 🎨 Design Principles
+
+### Autonomous Agent Architecture
+
+The client is designed as an **autonomous agent** that:
+
+1. **Discovers** server capabilities automatically
+2. **Tests** client-server compatibility
+3. **Adapts** behavior based on available features  
+4. **Executes** intelligent workflows
+5. **Reports** progress and results clearly
+
+### Modular Resource Management
+
+Resources, tools, and prompts are treated uniformly:
+
+| Element | Exposed As | Called By LLM As | Executed Via |
+|---------|------------|------------------|--------------|
+| Prompt | Instruction module | `use_prompt(name, args)` | `get_prompt(...)` |
+| Tool | Functional action | `call_tool(name, args)` | `call_tool(...)` |
+| Resource | Context/content | `read_resource(uri)` | `read_resource(...)` |
+
+### Security & Performance
+
+- **Input validation** on all file operations
+- **File type restrictions** for security
+- **Size limits** to prevent resource exhaustion  
+- **Chunked processing** for large files
+- **Error boundaries** with graceful degradation
+
+## 🔍 Advanced Features
+
+### Chunked File Reading
+
+Large files are automatically split into manageable chunks:
+
+```python
+# Get chunk metadata
+chunks_info = await session.read_resource("fs://chunks/large_file.py")
+# Returns: total_chunks, chunk_size, file_size, chunk_links[]
+
+# Read individual chunks
+for i in range(chunks_info['total_chunks']):
+    chunk = await session.read_resource(f"fs://chunk/large_file.py/{i}")
+```
+
+### Dynamic Capability Testing
+
+The system tests and adapts to different client configurations:
+
+```python
+# Client automatically discovers what's supported
+capabilities = await client.test_client_capabilities()
+# Returns: {'sampling': True, 'roots': False, 'experimental_tools': True}
+
+# Workflows adapt based on capabilities
+if capabilities['sampling']:
+    # Use LLM integration features
+    pass
+else:
+    # Fallback to basic functionality
+    pass
+```
+
+### Progress Tracking
+
+Long-running operations report progress:
+
+```python
+# Server can send progress updates
+await session.send_progress_notification(
+    progress_token="file-processing",
+    progress=0.7,
+    total=1.0
+)
+```
+
+## 🧪 Testing & Development
+
+### Running Tests
+
+The client includes comprehensive demonstration modes:
+
+```bash
+# Run full capability demo
+python client.py
+
+# The demo will:
+# 1. Test server connectivity
+# 2. Discover all capabilities
+# 3. Test client-server compatibility
+# 4. Demonstrate file operations
+# 5. Show resource access patterns
+# 6. Execute prompt templates
+```
+
+### Adding New Features
+
+#### Adding Server Tools
+
+```python
+@mcp.tool()
+def my_new_tool(param1: str, param2: int) -> str:
+    """Description of what the tool does"""
+    # Implementation here
+    return result
+```
+
+#### Adding Resource Endpoints
+
+```python
+@mcp.resource("fs://my-resource/{param}")
+def get_my_resource(param: str) -> dict:
+    """Resource description"""
+    return {"data": f"Dynamic content for {param}"}
+```
+
+#### Adding Prompts
+
+```python
+@mcp.prompt()
+def my_prompt_template(arg1: str) -> str:
+    """Prompt description"""
+    return f"Generated prompt with {arg1}"
+```
+
+## 📄 License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
 
 ---
 
-*This exploration demonstrates MCP's potential as a foundational protocol for AI-external system integration, providing a standardized, secure, and scalable approach to extending AI capabilities.*
+*Built with ❤️ for exploring the future of AI-tool integration*
